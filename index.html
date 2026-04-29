@@ -7,6 +7,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  
   <style>
     :root {
       --blue: #3B82F6;
@@ -68,7 +73,6 @@
 
     select { outline: none; appearance: none; -webkit-appearance: none; }
 
-    /* Admin padlock button */
     .padlock-btn {
       position: fixed;
       bottom: 22px;
@@ -92,7 +96,6 @@
     .padlock-btn.admin-active { background: #10B981; border-color: #10B981; }
     .padlock-btn.admin-active:hover { background: #059669; }
 
-    /* Admin mode indicator strip */
     .admin-strip {
       position: fixed;
       bottom: 22px;
@@ -109,7 +112,6 @@
       display: none;
     }
 
-    /* Modal */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -143,7 +145,6 @@
     }
     input[type="password"]:focus { border-color: #3B82F6; outline: none; }
 
-    /* View-only badge */
     .view-badge {
       display: inline-flex;
       align-items: center;
@@ -158,7 +159,34 @@
       color: #94A3B8;
     }
 
-    /* Responsive grid fix */
+    .sync-indicator {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(16,185,129,0.9);
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: bold;
+      z-index: 950;
+      display: none;
+    }
+
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.85);
+      backdrop-filter: blur(8px);
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+
     @media (max-width: 1024px) {
       .main-grid { display: flex; flex-direction: column; gap: 1.5rem; }
       .fixtures-grid { grid-template-columns: 1fr !important; }
@@ -169,7 +197,6 @@
       .match-card { border-radius: 0.7rem; }
     }
 
-    /* Champion celebration */
     .champion-banner {
       background: linear-gradient(135deg, #7C3AED20, #F59E0B20);
       border: 1px solid #F59E0B50;
@@ -182,7 +209,10 @@
 
   <div class="max-w-[1600px] mx-auto">
 
-    <!-- HEADER -->
+    <div id="syncIndicator" class="sync-indicator">
+      <i class="fas fa-check-circle mr-1"></i> Synced
+    </div>
+
     <div class="flex flex-wrap justify-between items-start mb-7 gap-3">
       <div>
         <h1 class="header-title text-5xl font-black tracking-tight leading-none" style="font-family:'Barlow Condensed',sans-serif; background: linear-gradient(135deg, #60A5FA, #818CF8, #A78BFA); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
@@ -191,7 +221,6 @@
         <p class="text-gray-500 mt-1 text-xs tracking-wide"><i class="far fa-calendar-alt mr-1"></i> Round Robin · Top 4 Advance · Knockouts</p>
       </div>
       <div class="flex items-center gap-3 flex-wrap">
-        <!-- Admin: Reset button — only visible in admin mode -->
         <button id="resetBtn" onclick="resetTournament()" class="hidden bg-red-500/80 hover:bg-red-600 text-white px-5 py-2 rounded-full text-xs font-bold tracking-wide transition shadow-lg" style="font-family:'Barlow Condensed',sans-serif; letter-spacing:0.06em;">
           <i class="fas fa-undo-alt mr-2"></i>RESET TOURNAMENT
         </button>
@@ -201,10 +230,8 @@
       </div>
     </div>
 
-    <!-- MAIN GRID -->
     <div class="main-grid lg:grid lg:grid-cols-3 gap-7">
 
-      <!-- STANDINGS -->
       <div class="lg:col-span-1 glass-panel p-5">
         <div class="flex items-center gap-2 border-b border-white/10 pb-3 mb-4">
           <i class="fas fa-trophy text-yellow-400 text-lg"></i>
@@ -217,7 +244,6 @@
         </div>
       </div>
 
-      <!-- RIGHT: FIXTURES + KNOCKOUT -->
       <div class="lg:col-span-2 flex flex-col gap-7">
 
         <div class="glass-panel p-5">
@@ -243,18 +269,36 @@
     </div>
   </div>
 
-  <!-- Padlock button -->
   <div class="padlock-btn" id="padlockBtn" title="Admin access">
     <i class="fas fa-lock text-blue-300 text-base" id="padlockIcon"></i>
   </div>
 
-  <!-- Admin mode strip -->
   <div class="admin-strip" id="adminStrip">
     <i class="fas fa-user-shield mr-1"></i> ADMIN MODE
   </div>
 
-  <!-- ======================= SCRIPT ======================= -->
+  <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+    <div class="text-center">
+      <i class="fas fa-spinner fa-pulse fa-3x text-blue-400 mb-4"></i>
+      <p class="text-white font-bold">Connecting to tournament server...</p>
+    </div>
+  </div>
+
   <script>
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyBkDs4NuZ7a3dUknktJ3VHIy06xof6r30Q",
+      authDomain: "efootball-tournament-iubeee.firebaseapp.com",
+      projectId: "efootball-tournament-iubeee",
+      storageBucket: "efootball-tournament-iubeee.firebasestorage.app",
+      messagingSenderId: "472089589182",
+      appId: "1:472089589182:web:24be981ce18e9f96ffb5ef"
+    };
+    
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
     const ADMIN_PASSWORD = "shimul123";
     const PLAYERS = ["Shimul", "Daud", "Anin", "Turja", "Farhan", "Sahib"];
 
@@ -281,24 +325,68 @@
     let semi2 = { home: null, away: null, winner: null, played: false };
     let finalMatch = { home: null, away: null, winner: null, played: false };
     let isAdmin = false;
+    let isSaving = false;
+    let dataLoaded = false;
 
-    // ===== STORAGE =====
-    function save() {
+    function showSync(syncing) {
+      const indicator = document.getElementById('syncIndicator');
+      if (syncing) {
+        indicator.innerHTML = '<i class="fas fa-sync-alt fa-spin mr-1"></i> Saving...';
+        indicator.style.display = 'flex';
+      } else {
+        indicator.innerHTML = '<i class="fas fa-check-circle mr-1"></i> Synced';
+        indicator.style.display = 'flex';
+        setTimeout(() => {
+          if (!isSaving) indicator.style.display = 'none';
+        }, 2000);
+      }
+    }
+
+    // Load from localStorage first (to keep existing data)
+    function loadFromLocalStorage() {
+      const raw = localStorage.getItem("efootball_pro_v2");
+      if (raw) {
+        try {
+          const d = JSON.parse(raw);
+          matchResults = d.matchResults || new Array(15).fill(null);
+          semi1 = d.semi1 || { home: null, away: null, winner: null, played: false };
+          semi2 = d.semi2 || { home: null, away: null, winner: null, played: false };
+          finalMatch = d.finalMatch || { home: null, away: null, winner: null, played: false };
+          console.log('Loaded existing data from localStorage');
+          return true;
+        } catch(e) {}
+      }
+      return false;
+    }
+
+    async function saveToFirebase() {
+      if (!dataLoaded) return;
+      if (isSaving) return;
+      
+      isSaving = true;
+      showSync(true);
+      
+      try {
+        await db.collection('tournament').doc('current').set({
+          matchResults: matchResults,
+          semi1: semi1,
+          semi2: semi2,
+          finalMatch: finalMatch,
+          lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        console.log('Saved to Firebase');
+      } catch(error) {
+        console.error('Save error:', error);
+      } finally {
+        isSaving = false;
+        showSync(false);
+      }
+    }
+
+    function saveToLocalStorage() {
       localStorage.setItem("efootball_pro_v2", JSON.stringify({ matchResults, semi1, semi2, finalMatch }));
     }
-    function load() {
-      const raw = localStorage.getItem("efootball_pro_v2");
-      if (!raw) return;
-      try {
-        const d = JSON.parse(raw);
-        matchResults = d.matchResults || new Array(15).fill(null);
-        semi1 = d.semi1 || { home: null, away: null, winner: null, played: false };
-        semi2 = d.semi2 || { home: null, away: null, winner: null, played: false };
-        finalMatch = d.finalMatch || { home: null, away: null, winner: null, played: false };
-      } catch(e) {}
-    }
 
-    // ===== STANDINGS =====
     function computeStandings() {
       let stats = {};
       PLAYERS.forEach(p => { stats[p] = { played: 0, won: 0, draw: 0, lost: 0, points: 0 }; });
@@ -313,6 +401,7 @@
       });
       return PLAYERS.map(p => ({ name: p, ...stats[p] })).sort((a, b) => b.points - a.points);
     }
+    
     function getTop4() { return computeStandings().slice(0, 4).map(s => s.name); }
 
     function syncKnockout() {
@@ -329,18 +418,19 @@
       } else if (!finalMatch.played) { finalMatch.home = null; finalMatch.away = null; }
     }
 
-    // ===== RESULT SETTERS =====
-    function setRRResult(idx, result) {
+    async function setRRResult(idx, result) {
       if (!isAdmin) return;
       matchResults[idx] = result;
       if (!semi1.played) { semi1.winner = null; }
       if (!semi2.played) { semi2.winner = null; }
       if (!finalMatch.played) { finalMatch.winner = null; }
       syncKnockout();
-      save(); renderAll();
+      saveToLocalStorage();
+      await saveToFirebase();
+      renderAll();
     }
 
-    function setKOResult(type, winner) {
+    async function setKOResult(type, winner) {
       if (!isAdmin) return;
       if (type === 'semi1' && semi1.home && semi1.away && !semi1.played) { semi1.winner = winner; semi1.played = true; }
       if (type === 'semi2' && semi2.home && semi2.away && !semi2.played) { semi2.winner = winner; semi2.played = true; }
@@ -348,20 +438,24 @@
       if (semi1.played && semi2.played && semi1.winner && semi2.winner) {
         finalMatch.home = semi1.winner; finalMatch.away = semi2.winner;
       }
-      save(); renderAll();
+      saveToLocalStorage();
+      await saveToFirebase();
+      renderAll();
     }
 
-    function resetTournament() {
+    async function resetTournament() {
       if (!isAdmin) return;
       if (!confirm("Reset the entire tournament? This cannot be undone.")) return;
       matchResults = new Array(15).fill(null);
       semi1 = { home: null, away: null, winner: null, played: false };
       semi2 = { home: null, away: null, winner: null, played: false };
       finalMatch = { home: null, away: null, winner: null, played: false };
-      syncKnockout(); save(); renderAll();
+      syncKnockout();
+      saveToLocalStorage();
+      await saveToFirebase();
+      renderAll();
     }
 
-    // ===== RENDER STANDINGS =====
     function renderStandings() {
       const standings = computeStandings();
       const c = document.getElementById("standingsContainer");
@@ -386,7 +480,6 @@
       });
     }
 
-    // ===== RENDER ROUND ROBIN =====
     function renderRoundRobin() {
       const c = document.getElementById("roundRobinMatches");
       c.innerHTML = "";
@@ -395,13 +488,11 @@
         const card = document.createElement("div");
         card.className = "match-card p-3";
 
-        // Result display
-        let resultLabel = "", resultBadge = "";
-        if (res === "home")  { resultLabel = `${match.home} Won`; resultBadge = `<span class="badge-win">${match.home.toUpperCase()} WON</span>`; }
-        else if (res === "away") { resultLabel = `${match.away} Won`; resultBadge = `<span class="badge-win">${match.away.toUpperCase()} WON</span>`; }
-        else if (res === "draw") { resultLabel = "Draw"; resultBadge = `<span class="badge-draw">DRAW</span>`; }
+        let resultBadge = "";
+        if (res === "home")  { resultBadge = `<span class="badge-win">${match.home.toUpperCase()} WON</span>`; }
+        else if (res === "away") { resultBadge = `<span class="badge-win">${match.away.toUpperCase()} WON</span>`; }
+        else if (res === "draw") { resultBadge = `<span class="badge-draw">DRAW</span>`; }
 
-        // Admin controls or view-only indicators
         let controls = "";
         if (!res) {
           if (isAdmin) {
@@ -447,7 +538,6 @@
       }
     }
 
-    // ===== RENDER KNOCKOUTS =====
     function renderKnockouts() {
       const top4 = getTop4();
       const ko = document.getElementById("knockoutArea");
@@ -456,6 +546,7 @@
         ko.innerHTML = `<div class="text-center py-8 bg-white/4 rounded-2xl text-gray-500 border border-white/8">
           <i class="fas fa-hourglass-half text-2xl mb-2 block text-blue-400/50"></i>
           <p class="text-sm">Complete the round robin to unlock the knockout stage.</p>
+          <p class="text-xs text-gray-600 mt-2">${top4.length}/4 teams qualified</p>
         </div>`;
         return;
       }
@@ -523,9 +614,12 @@
       }
     }
 
-    function renderAll() { renderStandings(); renderRoundRobin(); renderKnockouts(); }
+    function renderAll() { 
+      renderStandings(); 
+      renderRoundRobin(); 
+      renderKnockouts(); 
+    }
 
-    // ===== ADMIN UNLOCK =====
     function applyAdminUI() {
       document.getElementById("resetBtn").classList.remove("hidden");
       document.getElementById("viewerBadge").style.display = "none";
@@ -537,7 +631,6 @@
 
     function showAdminModal() {
       if (isAdmin) {
-        // Already admin — clicking again exits admin mode
         if (confirm("Exit admin mode?")) {
           isAdmin = false;
           localStorage.removeItem("efootball_admin_session");
@@ -595,19 +688,52 @@
       overlay.addEventListener("click", e => { if (e.target === overlay) document.body.removeChild(overlay); });
     }
 
-    // ===== INIT =====
-    load();
-    // Check saved session — still require page-load session validation
-    if (localStorage.getItem("efootball_admin_session") === "true") {
-      isAdmin = true;
-      // Defer UI apply until after DOM is ready
-      document.addEventListener("DOMContentLoaded", () => {});
-      applyAdminUI();
-    }
+    // Load localStorage data first (so you see your old data immediately)
+    loadFromLocalStorage();
     syncKnockout();
     renderAll();
 
+    // Then setup Firebase to sync across devices
+    setTimeout(() => {
+      db.collection('tournament').doc('current').onSnapshot((doc) => {
+        if (doc.exists && !isSaving) {
+          const data = doc.data();
+          // Only update from Firebase if we're not currently saving
+          const newMatchResults = data.matchResults;
+          const newSemi1 = data.semi1;
+          const newSemi2 = data.semi2;
+          const newFinalMatch = data.finalMatch;
+          
+          // Check if Firebase has different data
+          if (JSON.stringify(matchResults) !== JSON.stringify(newMatchResults) && newMatchResults) {
+            matchResults = newMatchResults;
+            semi1 = newSemi1 || { home: null, away: null, winner: null, played: false };
+            semi2 = newSemi2 || { home: null, away: null, winner: null, played: false };
+            finalMatch = newFinalMatch || { home: null, away: null, winner: null, played: false };
+            syncKnockout();
+            saveToLocalStorage();
+            renderAll();
+            console.log('Updated from Firebase');
+          }
+        } else if (!doc.exists) {
+          // First time - save localStorage data to Firebase
+          console.log('First time - saving localStorage data to Firebase');
+          saveToFirebase();
+        }
+        dataLoaded = true;
+      }, (error) => {
+        console.error('Firestore error:', error);
+      });
+    }, 1000);
+
+    // Check saved admin session
+    if (localStorage.getItem("efootball_admin_session") === "true") {
+      isAdmin = true;
+      applyAdminUI();
+    }
+    
     document.getElementById("padlockBtn").addEventListener("click", showAdminModal);
+    window.resetTournament = resetTournament;
   </script>
 </body>
 </html>
